@@ -1,14 +1,20 @@
 import json
+import logging
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 import requests
 from langchain.callbacks.manager import CallbackManagerForLLMRun
 from langchain.embeddings.base import Embeddings
 from langchain.llms.base import LLM
-from langchain_community.llms.utils import enforce_stop_tokens
 from langchain.utils import get_from_dict_or_env
+from langchain_community.llms.utils import enforce_stop_tokens
+from llama_index.core.bridge.pydantic import PrivateAttr
+from llama_index.core.callbacks import CallbackManager
+from llama_index.core.llms import (CompletionResponse, CompletionResponseGen,
+                                   CustomLLM, LLMMetadata)
+from llama_index.core.llms.callbacks import llm_completion_callback
 from pydantic.v1 import Extra, root_validator
-import logging
+
 #from telemetry import TelemetryService
 
 logger = logging.getLogger(__name__)
@@ -253,6 +259,32 @@ class SeldonCore(LLM, Embeddings):
         embeddings = response['outputs'][0]['data']
 
         return embeddings
+
+
+class SeldonCoreLLM(CustomLLM):
+    """Adapter for LangChain SeldonCore component."""
+
+    _sc: SeldonCore = PrivateAttr()
+
+    def __init__(self, sc: SeldonCore, callback_manager: Optional[CallbackManager] = None):
+        self._sc = sc
+        super().__init__(callback_manager=callback_manager)
+
+    @llm_completion_callback()
+    def complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+        return CompletionResponse(text=self._sc.predict(prompt))
+
+    @llm_completion_callback()
+    def stream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseGen:
+        return NotImplementedError()
+
+    @property
+    def metadata(self) -> LLMMetadata:
+        """Get LLM metadata."""
+        return LLMMetadata(
+            is_chat_model=False,
+        )
+
 
 if __name__=="__main__":
     endpoint_url = (

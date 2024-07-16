@@ -17,7 +17,10 @@ neo4j = "^5.20.0"
 llama-index-vector-stores-neo4jvector = "^0.1.4"
 llama-index-graph-stores-neo4j = "^0.2.4"
 llama-index-vector-stores-qdrant = "^0.2.9"
+llama-index-embeddings-langchain = "^0.1.2"
 
+[tool.poetry.group.dev.dependencies]
+pylint = "^3.2"
 
 [build-system]
 requires = ["poetry-core"]
