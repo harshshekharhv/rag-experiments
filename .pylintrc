@@ -1,0 +1,22 @@
+[MAIN]
+
+# Files or directories to be skipped. They should be base names, not paths.
+ignore=CVS
+
+
+[MESSAGES CONTROL]
+
+# Disable the message, report, category or checker with the given id(s).
+; disable=
+;     broad-exception-caught,
+;     broad-exception-raised,
+;     too-many-arguments,
+;     too-many-instance-attributes,
+;     too-many-locals,
+
+
+[FORMAT]
+
+# Maximum number of characters on a single line.
+max-line-length=120
+

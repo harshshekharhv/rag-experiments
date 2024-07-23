@@ -5,14 +5,17 @@ from typing import List, Literal
 from app.pkg.document_loaders import load_data_from_link_and_store_openai_embeddings_in_neo4j_vector, \
 load_data_from_pdf, load_data_from_url, load_data_using_unstructured
 # from app.pkg.vectorstores.qdrant import QdrantVectorStore
-from app.pkg.llms.local_seldon_wrapper import SeldonCore
+from app.pkg.llms.local_seldon_wrapper import SeldonCore, SeldonCoreLLM
 from llama_index.core import PropertyGraphIndex, StorageContext
+from llama_index.embeddings.langchain import LangchainEmbedding
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
 from llama_index.core.indices.property_graph import (
     ImplicitPathExtractor,
     SimpleLLMPathExtractor,
     SchemaLLMPathExtractor,
+    VectorContextRetriever,
+    LLMSynonymRetriever
 )
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 import qdrant_client
@@ -45,19 +48,19 @@ def run(urls: List[str]):
         # you can use :memory: mode for fast and light-weight experiments,
         # it does not require to have Qdrant deployed anywhere
         # but requires qdrant-client >= 1.1.1
-        # location=":memory:"
+        location=":memory:"
         # otherwise set Qdrant instance address with:
         # url="http://<host>:<port>"
         # otherwise set Qdrant instance with host and port:
-        host="localhost",
-        port=6333
+        # host="localhost",
+        # port=6333
         # set API KEY for Qdrant Cloud
         # api_key="<qdrant-api-key>",
         # url="http://localhost:6333"
     )
     vector_store = QdrantVectorStore(client=client, collection_name="rag-mixtral")
     storage_context = StorageContext.from_defaults(vector_store=vector_store, property_graph_store=graph_store)
-    
+
 
     # entities = Literal["PERSON", "PLACE", "THING"]
     # relations = Literal["PART_OF", "HAS", "IS_A"]
@@ -77,9 +80,12 @@ def run(urls: List[str]):
     transformations = [
         SentenceSplitter(chunk_size=1024, chunk_overlap=20)
     ]
+
     seldon_url = "https://seldon-mesh.genai.sc.eng.hitachivantara.com"
-    llm = SeldonCore(
-            repo_id="mixtral-8x7b-instruct-v0-1-gptq-4bit-32g",
+    llm = SeldonCoreLLM(
+        sc=SeldonCore(
+            # repo_id="mixtral-8x7b-instruct-v0-1-gptq-4bit-32g",
+            repo_id="llama-2-7b-chat-gptq-4bit-32g",
             endpoint_url=seldon_url,
             task="text-generation",
             model_kwargs={
@@ -88,8 +94,15 @@ def run(urls: List[str]):
                 "top_p": 0.15,
                 "top_k": 0,
                 "repetition_penalty": 1.1,
-            }, 
-        )
+            },
+        ),
+    )
+    embed_model = LangchainEmbedding(
+        SeldonCore(
+            repo_id="gte-large-en-v1-5-st",
+            endpoint_url=seldon_url,
+        ),
+    )
 
     index = PropertyGraphIndex.from_documents(
         documents,
@@ -97,16 +110,18 @@ def run(urls: List[str]):
         transformations=transformations,
         storage_context=storage_context,
         vector_store=vector_store,
-        embed_model=OpenAIEmbedding(model_name="text-embedding-3-small", api_key=OPEN_AI_SECRET_KEY),
+        # embed_model=OpenAIEmbedding(model_name="text-embedding-3-small", api_key=OPEN_AI_SECRET_KEY),
+        embed_model=embed_model,
         # embed_model=SeldonCore(
         #     endpoint_url=seldon_url,
         #     repo_id="all-minilm-l6-v2-st",
         # ),
+        llm=llm,
         kg_extractors=[
             ImplicitPathExtractor(),
             SimpleLLMPathExtractor(
-                llm=OpenAI(model="gpt-3.5-turbo", temperature=0.3, api_key=OPEN_AI_SECRET_KEY),
-                # llm=llm,
+                # llm=OpenAI(model="gpt-3.5-turbo", temperature=0.3, api_key=OPEN_AI_SECRET_KEY),
+                llm=llm,
                 num_workers=4,
                 max_paths_per_chunk=10,
             ),
@@ -114,7 +129,13 @@ def run(urls: List[str]):
         ],
         show_progress=True,
     )
+
+    # sub_retrievers = [
+    #     LLMSynonymRetriever(index.property_graph_store, include_text=False, llm=llm),
+    #     VectorContextRetriever(index.property_graph_store, include_text=False, embed_model=embed_model, vector_store=index.vector_store)
+    # ]
     retriever = index.as_retriever(
+        # sub_retrievers=sub_retrievers,
         include_text=False,  # include source text, default True
     )
 
@@ -122,8 +143,8 @@ def run(urls: List[str]):
 
     for node in nodes:
         print(node.text)
-    
-    query_engine = index.as_query_engine(include_text=True)
+
+    query_engine = index.as_query_engine(llm=llm, include_text=True)
 
     response = query_engine.query("What is Shredding service?")
 
